@@ -1,0 +1,57 @@
+name: 🧹 Clean Discord Channels
+
+on:
+  schedule:
+    # Runs at 00:00 Asia/Jerusalem (UTC+3) which is 21:00 in UTC time
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  clear-channel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Clear Discord channel and post message
+        env:
+          DISCORD_TOKEN: ${{ vars.DISCORD_TOKEN }}
+          CHANNELS_IDS_2_CLEAN: ${{ vars.CHANNELS_IDS_2_CLEAN }}
+        run: |
+          node <<'EOF'
+          const { Client, GatewayIntentBits } = require('discord.js');
+          const client = new Client({
+            intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+          });
+
+          client.once('ready', async () => {
+            const ch = client.channels.cache.get(process.env.CHANNELS_IDS_2_CLEAN);
+            if (!ch?.isTextBased()) return process.exit(1);
+
+            let batch;
+            do {
+              batch = await ch.messages.fetch({ limit: 100 });
+              if (batch.size) await ch.bulkDelete(batch);
+            } while (batch.size >= 2);
+
+            // לאחר הניקוי שולחים את ההודעה המבוקשת
+            await ch.send(`חדר מצב היום שבו נרשום סקירה בפתיחת יום מסחר וסגירת יום מסחר,\nהמידע בחדר ימחק בתחילת היום הבא (אוטומטית ב-00:00)\nלכל מי שיש דעה, תובנה או מידע שיכול להצביע איך יום המסחר עומד להיראות – שיכתוב כדי לידע את האחרים.\nלא חייב להיות בפורמט מסוים – אלא רשמים כלליים, למשל שער הקריפטו והמדדים בפתיחת יום, חוזים עתידיים, אג\"ח וכו'.\nככה נוכל להיכנס בתחילת יום ולראות מה אנחנו חושבים במבט מהיר שיהיה היום, עם מידע עדכני בלבד\n\nבתחילת יום מסחר אפשר לצלם מטריידינג-וויו, או מ: \nhttps://www.marketwatch.com/tools/screener/premarket\nhttps://www.barchart.com/futures/heat-map\n\nפקודות שאפשר להריץ בתחילת יום מסחר:\n/c arguments: SPX 1d rsi macd bbands ema\n/c arguments: NDX 1d rsi macd bbands ema\n/hmap type: stocks market: S&P 500 Index size: market cap group: sector\n/hmap type: crypto size: market cap\n/lookup fgi market: stocks\n/lookup market-movers category: stocks gainers`);
+
+            console.log('Cleared channel and posted message', process.env.CHANNELS_IDS_2_CLEAN);
+            process.exit(0);
+          });
+
+          client.login(process.env.DISCORD_TOKEN);
+          EOF
